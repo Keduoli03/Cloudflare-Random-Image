@@ -1,0 +1,14 @@
+=== Cloudflare Transform Rules (Auto Generated) ===
+Target Domain: hitokoto.blueke.dpdns.org
+
+[Rule 1: Hitokoto Random] (HEX_LEN=4, SHARD=0)
+Condition: (http.host eq "hitokoto.blueke.dpdns.org") and (http.request.uri.path eq "/") and (not http.request.uri.query contains "c=")
+Expression:
+concat("/advanced_data/", substring(uuidv4(cf.random_seed), 0, 4), ".json")
+
+--------------------------------------------------
+
+[Rule 2: Hitokoto Category] (HEX_LEN=3, SHARD=0)
+Condition: (http.host eq "hitokoto.blueke.dpdns.org") and (http.request.uri.path eq "/") and (http.request.uri.query contains "c=")
+Expression:
+concat("/advanced_categories/", if(http.request.uri.query contains "c=l", "l", if(http.request.uri.query contains "c=k", "k", if(http.request.uri.query contains "c=j", "j", if(http.request.uri.query contains "c=i", "i", if(http.request.uri.query contains "c=h", "h", if(http.request.uri.query contains "c=g", "g", if(http.request.uri.query contains "c=f", "f", if(http.request.uri.query contains "c=e", "e", if(http.request.uri.query contains "c=d", "d", if(http.request.uri.query contains "c=c", "c", if(http.request.uri.query contains "c=b", "b", if(http.request.uri.query contains "c=a", "a", "unknown_category")))))))))))), "/", substring(uuidv4(cf.random_seed), 0, 3), ".json")
