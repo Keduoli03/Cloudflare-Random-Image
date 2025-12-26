@@ -5,7 +5,7 @@ on:
     branches: [ "main", "master" ]
     paths:
       - 'Image/**'
-      - 'gen_advanced.py'
+      - 'gen.py'
       - '.github/workflows/**'
   workflow_dispatch:
 
@@ -31,7 +31,7 @@ jobs:
           pip install Pillow
 
       - name: Generate API Data
-        run: python gen_advanced.py
+        run: python gen.py
 
       - name: Output Rules (For Cloudflare Configuration)
         run: |

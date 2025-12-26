@@ -1,59 +1,88 @@
-# Cloudflare Random Hitokoto
+# Cloudflare Random Image
 
-使用 Cloudflare 规则实现的不限请求次数的随机一言接口。
+使用 Cloudflare 规则实现的不限请求次数的随机图片 API。
 
-> 本项目 Fork 并修改自 [Mabbs/cf-hitokoto](https://github.com/Mabbs/cf-hitokoto)，感谢原作者
+> 本项目 Fork 并修改自 [Mabbs/cf-hitokoto](https://github.com/Mabbs/cf-hitokoto)，核心思路源于原作者。
+> 本项目将其改造为**随机图片**分发服务，支持自动扫描仓库图片、横竖屏分类，并结合 jsDelivr CDN 加速。
 
-个人仅作了自动更新与自动生成规则的修改，数据来源与部署方法均与原项目一致。
+## ✨ 特性
 
-作者的思路tql，再次依旧感叹天才般的想法。
+*   **无限请求**: 依托 Cloudflare 边缘计算规则，不消耗服务器资源，理论上无 QPS 限制。
+*   **自动维护**: 只需将图片上传到 `Image/` 目录，GitHub Actions 会自动扫描并生成索引。
+*   **智能分类**: 自动识别图片宽高比，提供“横屏 (Landscape)”和“竖屏 (Portrait)”分类接口。
+*   **CDN 加速**: 图片资源通过 jsDelivr 全球加速 (可配置)。
 
-## 数据来源
+## 🚀 部署方法
 
-[hitokoto-osc/sentences-bundle](https://github.com/hitokoto-osc/sentences-bundle)
+### 1. 准备仓库
+Fork 本仓库到你的 GitHub 账号。
 
-## 部署方法
+### 2. 上传图片
+将你的图片文件上传到 `Image/` 文件夹中（支持 .jpg, .png, .webp, .gif 等）。
+*建议：为了获得最佳体验，请确保文件名不包含特殊字符。*
 
-1.  Fork 本仓库。
-2.  在 GitHub Settings -> Pages 中启用 Pages，Source 选择 `GitHub Actions`。
-3.  配置 Cloudflare 转换规则（Transform Rules -> Rewrite URL）。
+### 3. 修改配置
+修改 `gen_advanced.py` 文件顶部的配置区域：
 
-### Cloudflare 规则
-
-**全随机重写规则 (Rewrite Path):**
-```javascript
-concat("/orig_data/", substring(uuidv4(cf.random_seed), 0, 4), ".json")
+```python
+# 你的 GitHub 用户名/仓库/分支
+REPO_USER = "你的用户名"
+REPO_NAME = "仓库名称"
+BRANCH = "main"
 ```
-*(注意：`4` 是根据当前数据量自动计算的，请参考生成的 `rules.txt`)*
 
-**带分类重写规则 (Rewrite Path):**
-```javascript
-concat("/categories/", substring(http.request.uri.query, 2, 3), "/", substring(uuidv4(cf.random_seed), 0, 3), ".json")
-```
+### 4. 开启 GitHub Pages
+在 GitHub 仓库设置中：`Settings` -> `Pages` -> `Build and deployment`
+*   **Source**: 选择 `GitHub Actions`
 
-## API 用法
+### 5. 推送代码
+提交更改并推送到 GitHub，等待 Actions 构建完成。构建成功后，你可以在 Actions 日志或生成的 `rules.txt` (部署后的网页路径) 中找到 Cloudflare 规则。
+
+### 6. 配置 Cloudflare
+在 Cloudflare 后台，进入你的域名管理页面：
+1.  **Rules** -> **Transform Rules** -> **Rewrite URL** -> **Create rule**
+2.  **Rule name**: Random Image
+3.  **When incoming requests match**: `Hostname` equals `你的域名` (或者根据需要设置)
+4.  **Path Rewrite** -> **Rewrite to ...** -> **Dynamic**
+5.  填入下方生成的规则表达式。
+
+#### Cloudflare 规则表达式
+
+请访问 `https://你的域名/rules.txt` 获取最新生成的规则，它会根据你的图片数量自动调整。
+
+**通用格式参考：**
+
+*   **Random Rule (全随机)**:
+    ```javascript
+    concat("/all/", substring(uuidv4(cf.random_seed), 0, 2), ".json")
+    ```
+    *(注意：`2` 是根据图片数量自动计算的 Hex 长度)*
+
+*   **Category Rule (带分类)**:
+    ```javascript
+    concat("/categories/", substring(http.request.uri.query, 2, 1), "/", substring(uuidv4(cf.random_seed), 0, 2), ".json")
+    ```
+
+## 🔌 API 用法
 
 请求地址：`https://你的域名/`
 
-| 参数 | 值 | 可选 | 说明 | 示例 |
-| :--- | :--- | :--- | :--- | :--- |
-| **c** | 见 [categories.json](categories.json) | 是 | 句子分类 (单字符) | `?c=a` (动画) |
+### 参数说明
 
-如果不带参数，则返回全库随机的一言。
+| 参数 | 值 | 说明 | 示例 |
+| :--- | :--- | :--- | :--- |
+| **c** | `l` | 获取**横屏**图片 (Landscape) | `?c=l` |
+| **c** | `p` | 获取**竖屏**图片 (Portrait) | `?c=p` |
+| (无) | (无) | 获取**全库随机**图片 | (不带参数) |
 
-### 分类列表 (部分)
+### 返回示例 (JSON)
 
-*   `a`: 动画
-*   `b`: 漫画
-*   `c`: 游戏
-*   `d`: 文学
-*   `e`: 原创
-*   `f`: 来自网络
-*   `g`: 其他
-*   `h`: 影视
-*   `i`: 诗词
-*   `j`: 网易云
-*   `k`: 哲学
-*   `l`: 抖机灵
+```json
+{
+  "url": "https://gcore.jsdelivr.net/gh/Keduoli03/Cloudflare-Random-Image@main/image/example.jpg",
+  "type": "landscape"
+}
+```
 
-*(完整列表请查看生成的 `categories.json`)*
+*   `url`: 图片的直链地址 (已拼接 CDN)。
+*   `type`: 图片类型，`landscape` (横屏) 或 `portrait` (竖屏)。
