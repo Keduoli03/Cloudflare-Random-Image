@@ -27,7 +27,7 @@ BRANCH = "main"
 CDN_PROVIDER = "https://gcore.jsdelivr.net/gh"
 
 # 图片源目录 (本地)
-SOURCE_DIR = Path("Image")
+SOURCE_DIR = Path("image")
 
 # 输出目录 (本地)
 OUTPUT_DIR = Path("dist")

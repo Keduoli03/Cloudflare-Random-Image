@@ -79,7 +79,7 @@ BRANCH = "main"
 
 ```json
 {
-  "url": "https://gcore.jsdelivr.net/gh/Keduoli03/Cloudflare-Random-Image@main/image/example.jpg",
+  "url": "https://gcore.jsdelivr.net/gh/Keduoli03/Cloudflare-Random-Image@main/image/乌贼.jpg",
   "type": "landscape"
 }
 ```
