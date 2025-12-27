@@ -63,46 +63,42 @@ def generate_cf_rule(hex_len: int) -> str:
     # 2. Portrait (竖屏) -> 映射到 CDN/pxxxx.webp
     rule_portrait = f'concat("{base_url}/p", substring(uuidv4(cf.random_seed), 0, {hex_len}), "{ext}")'
     
-    # Rule 3: Random -> Landscape (当 uuidv4 首位是 0-7)
-    rule_random_l = rule_landscape # 直接复用横屏的跳转逻辑
+    # Rule 3: Random (Mixed)
+    # 逻辑：取 uuid 第0位字符，若是 0-7 -> l，若是 8-f -> p
+    # 使用 regex_replace 在 Redirect Expression 中直接分流，无需拆分规则
+    random_char = 'substring(uuidv4(cf.random_seed), 0, 1)'
+    prefix_logic = f'regex_replace(regex_replace({random_char}, "[0-7]", "l"), "[89a-f]", "p")'
     
-    # Rule 4: Random -> Portrait (当 uuidv4 首位是 8-f)
-    rule_random_p = rule_portrait # 直接复用竖屏的跳转逻辑
+    # 这里的 substring(..., 1, hex_len) 是取文件名部分
+    rule_random = f'concat("{base_url}/", {prefix_logic}, substring(uuidv4(cf.random_seed), 1, {hex_len}), "{ext}")'
     
     content = [
         "===========================================================",
-        "【注意】由于 Cloudflare 表达式限制 (禁止多次 uuidv4 / 嵌套正则)，",
-        "我们将'全随机'拆分为两条规则 (50% 概率各自触发)。",
-        "请严格按照以下顺序配置 4 条规则！",
+        "【Cloudflare 规则配置说明】",
+        "现在我们将随机分流逻辑合并到了一条规则中 (Rule 3)。",
+        "请在 Redirect Rules 中创建以下 3 条规则。",
         "===========================================================",
         "",
         "--- Rule 1: Landscape (指定横屏) ---",
         "Rule Name: Random Image - Landscape",
         "Match Expression:",
         f'(http.host eq "{DOMAIN}" and http.request.uri.path eq "/l")',
-        "Redirect Expression:",
+        "Redirect Expression (Dynamic):",
         f'{rule_landscape}',
         "",
         "--- Rule 2: Portrait (指定竖屏) ---",
         "Rule Name: Random Image - Portrait",
         "Match Expression:",
         f'(http.host eq "{DOMAIN}" and http.request.uri.path eq "/p")',
-        "Redirect Expression:",
+        "Redirect Expression (Dynamic):",
         f'{rule_portrait}',
         "",
-        "--- Rule 3: Random A (50% -> 横屏) ---",
-         "Rule Name: Random Image - All - A",
-         "Match Expression (请点击 Edit expression 粘贴):",
-         f'(http.host eq "{DOMAIN}" and (http.request.uri.path eq "/" or (http.request.uri.path ne "/l" and http.request.uri.path ne "/p")) and substring(cf.ray_id, 0, 1) matches "[0-7]")',
-         "Redirect Expression:",
-         f'{rule_landscape}',
-         "",
-         "--- Rule 4: Random B (50% -> 竖屏) ---",
-         "Rule Name: Random Image - All - B",
-         "Match Expression (请点击 Edit expression 粘贴):",
-         f'(http.host eq "{DOMAIN}" and (http.request.uri.path eq "/" or (http.request.uri.path ne "/l" and http.request.uri.path ne "/p")))',
-         "Redirect Expression:",
-         f'{rule_portrait}',
+        "--- Rule 3: Random (All) ---",
+        "Rule Name: Random Image - All",
+        "Match Expression (这是兜底规则，放在最后):",
+        f'(http.host eq "{DOMAIN}" and (http.request.uri.path eq "/" or (http.request.uri.path ne "/l" and http.request.uri.path ne "/p")))',
+        "Redirect Expression (Dynamic - 请点击 Edit expression 粘贴):",
+        f'{rule_random}',
         ""
     ]
     
