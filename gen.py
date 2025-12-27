@@ -32,6 +32,9 @@ CONVERT_WEBP = True
 # 输出文件后缀
 DEFAULT_EXT = ".jpg" 
 
+# 部署域名
+DOMAIN = "image.blueke.dpdns.org"
+
 # ===========================================
 
 def calculate_hex_len(item_count: int, min_len: int) -> int:
@@ -64,21 +67,24 @@ def generate_cf_rule(hex_len: int) -> str:
         "",
         "--- Rule 1: Landscape (横屏) ---",
         "Rule Name: Random Image - Landscape",
-        'When incoming requests match: (http.request.uri.path eq "/l")',
-        "Path Rewrite: Dynamic",
-        f"Expression: {rule_landscape}",
+        "Match Expression:",
+        f'(http.host eq "{DOMAIN}" and http.request.uri.path eq "/l")',
+        "Path Rewrite Expression:",
+        f'{rule_landscape}',
         "",
         "--- Rule 2: Portrait (竖屏) ---",
         "Rule Name: Random Image - Portrait",
-        'When incoming requests match: (http.request.uri.path eq "/p")',
-        "Path Rewrite: Dynamic",
-        f"Expression: {rule_portrait}",
+        "Match Expression:",
+        f'(http.host eq "{DOMAIN}" and http.request.uri.path eq "/p")',
+        "Path Rewrite Expression:",
+        f'{rule_portrait}',
         "",
         "--- Rule 3: Random (全随机) ---",
         "Rule Name: Random Image - All",
-        'When incoming requests match: (http.request.uri.path eq "/")',
-        "Path Rewrite: Dynamic",
-        f"Expression: {rule_all}",
+        "Match Expression:",
+        f'(http.host eq "{DOMAIN}" and http.request.uri.path eq "/")',
+        "Path Rewrite Expression:",
+        f'{rule_all}',
         ""
     ]
     
