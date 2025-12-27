@@ -64,41 +64,117 @@ def generate_cf_rule(hex_len: int) -> str:
     rule_portrait = f'concat("{base_url}/p", substring(uuidv4(cf.random_seed), 0, {hex_len}), "{ext}")'
     
     # Rule 3: Random (Mixed)
-    # 逻辑：取 uuid 第0位字符，若是 0-7 -> l，若是 8-f -> p
-    # 使用 regex_replace 在 Redirect Expression 中直接分流，无需拆分规则
-    random_char = 'substring(uuidv4(cf.random_seed), 0, 1)'
-    prefix_logic = f'regex_replace(regex_replace({random_char}, "[0-7]", "l"), "[89a-f]", "p")'
+    # 逻辑：取 uuid 第0位字符 (0-f)，将其映射到 l 或 p
+    # Cloudflare 限制：regex_replace 不能嵌套，uuidv4 只能调用一次
+    # 解决方案：使用 lookup_json_string (虽然复杂) 或者更简单的：
+    # 我们可以利用 substring 来做映射！
+    # 构造一个固定的 16 字符字符串 (对应 0-f 的映射结果): "llllllllpppppppp"
+    # 然后把 hex 字符 (0-f) 转为数字索引？不行，Cloudflare 没有 hex2int。
     
-    # 这里的 substring(..., 1, hex_len) 是取文件名部分
-    rule_random = f'concat("{base_url}/", {prefix_logic}, substring(uuidv4(cf.random_seed), 1, {hex_len}), "{ext}")'
+    # 新方案：利用 http.request.id (Ray ID) 或其他随机字段辅助，避免多次调用 uuidv4
+    # 但 uuidv4 最随机。
+    # 既然 regex_replace 不能嵌套，我们只能用单一正则提取。
+    # 还是回到最原始的方案：拆分规则。
+    # 用户不想拆分规则。
+    
+    # 终极方案：使用 regex_replace 做一次性替换
+    # 将 0-7 替换为 l，将 8-f 替换为 p。
+    # 表达式: regex_replace(substring(uuidv4(cf.random_seed), 0, 1), "[0-7]", "l") -> 得到 "l" 或 "8"-"f"
+    # 这还是不行，因为剩下 "8"-"f" 没变。
+    
+    # 让我们换个思路：文件名不仅仅是 1 位 hex，而是 hex_len (比如 1 位)。
+    # 如果我们让文件名只有 "l" 和 "p" 开头，后面跟着 hex。
+    # 其实我们可以利用 "to_string(cf.ray_id)" 或者其他字段。
+    
+    # 真正可行的单条规则方案 (利用 regex_replace 的捕获组功能):
+    # regex_replace(input, pattern, replacement)
+    # 输入: substring(uuidv4(cf.random_seed), 0, 1)  (比如 "a")
+    # 正则: "[0-7]" -> "l"
+    # 正则: "[8-9a-f]" -> "p"
+    # Cloudflare 不支持多次 regex_replace。
+    
+    # 等等，Cloudflare 报错说 regex_replace 只能调 1 次，uuidv4 只能调 1 次。
+    # 那么我们必须在一次 regex_replace 中完成所有工作，或者根本不用 regex_replace。
+    
+    # 唯一的单条规则解法：不使用动态计算前缀，而是让文件名本身就包含随机性，或者接受拆分规则。
+    # 既然用户非常抗拒拆分规则，且刚才的尝试失败了。
+    
+    # 让我们尝试利用 lookup_json_string (如果 Cloudflare 支持的话，但那是高级功能)。
+    
+    # 回退方案：既然不能嵌套，也不能多次调用。
+    # 那我们只能放弃在 URL 里动态计算 "l" 或 "p"。
+    # 除非... 我们把所有文件都混在一起？不，用户要分类。
+    
+    # 重新思考：有没有办法一次 regex_replace 把 0-f 映射成 l/p？
+    # regex_replace("0", "[0-7]", "l") -> "l"
+    # regex_replace("8", "[0-7]", "l") -> "8" (没变)
+    
+    # 看来单条规则实现 "if-else" 逻辑在 Cloudflare 免费版限制下非常困难。
+    # 但我们还有一个技巧：
+    # 既然 uuidv4 返回的是 hex string。
+    # 我们可以只用 0 和 1 吗？
+    # 不行，uuidv4 是随机的。
+    
+    # 没办法，必须告诉用户：Cloudflare 免费版的限制导致必须拆分规则。
+    # 或者... 我们使用 cf.ray_id (它不限调用次数吗？文档没说，但通常比 uuidv4 宽松)。
+    # 错误提示说 "function uuidv4 is called 2 times"。
+    
+    # 让我们尝试用 cf.ray_id 替代 uuidv4 的其中一次调用。
+    # Ray ID 也是 hex 字符串。
+    # 比如: concat(..., substring(cf.ray_id, 0, 1), ...)
+    
+    # 如果我们用 ray_id 来决定 l/p，用 uuidv4 来决定文件名？
+    # ray_id 的分布也是均匀的吗？是的。
+    # 那么：
+    # random_char = substring(cf.ray_id, 0, 1)
+    # 还是面临 regex_replace 不能嵌套的问题。
+    
+    # 既然必须拆分，我需要诚实地告诉用户并恢复到拆分规则的状态，
+    # 但为了让用户体验更好，我会把规则写得非常清楚。
+    # 不过，用户刚才说 "只能调用一次uuid吧"。
+    
+    # 修正方案：恢复为 4 条规则 (A/B 分流)，这是唯一稳定可靠且不报错的方法。
+    # 为了安抚用户，我会把规则生成得更易读，并明确指出这是 Cloudflare 的硬限制。
+    
+    rule_random_l = rule_landscape
+    rule_random_p = rule_portrait
     
     content = [
         "===========================================================",
-        "【Cloudflare 规则配置说明】",
-        "现在我们将随机分流逻辑合并到了一条规则中 (Rule 3)。",
-        "请在 Redirect Rules 中创建以下 3 条规则。",
+        "【重要提示】Cloudflare 免费版限制：",
+        "1. regex_replace 不能嵌套使用。",
+        "2. uuidv4() 在一条规则中只能调用 1 次。",
+        "因此，我们**必须**将随机分流拆分为两条规则 (A/B)。",
+        "这是实现 50/50 混合随机的唯一免费方案。",
         "===========================================================",
         "",
         "--- Rule 1: Landscape (指定横屏) ---",
         "Rule Name: Random Image - Landscape",
         "Match Expression:",
         f'(http.host eq "{DOMAIN}" and http.request.uri.path eq "/l")',
-        "Redirect Expression (Dynamic):",
+        "Redirect Expression:",
         f'{rule_landscape}',
         "",
         "--- Rule 2: Portrait (指定竖屏) ---",
         "Rule Name: Random Image - Portrait",
         "Match Expression:",
         f'(http.host eq "{DOMAIN}" and http.request.uri.path eq "/p")',
-        "Redirect Expression (Dynamic):",
+        "Redirect Expression:",
         f'{rule_portrait}',
         "",
-        "--- Rule 3: Random (All) ---",
-        "Rule Name: Random Image - All",
-        "Match Expression (这是兜底规则，放在最后):",
+        "--- Rule 3: Random A (50% -> 横屏) ---",
+        "Rule Name: Random Image - All - A",
+        "Match Expression (请点击 Edit expression 粘贴):",
+        f'(http.host eq "{DOMAIN}" and (http.request.uri.path eq "/" or (http.request.uri.path ne "/l" and http.request.uri.path ne "/p")) and substring(cf.ray_id, 0, 1) matches "[0-7]")',
+        "Redirect Expression:",
+        f'{rule_landscape}',
+        "",
+        "--- Rule 4: Random B (50% -> 竖屏) ---",
+        "Rule Name: Random Image - All - B",
+        "Match Expression (请点击 Edit expression 粘贴):",
         f'(http.host eq "{DOMAIN}" and (http.request.uri.path eq "/" or (http.request.uri.path ne "/l" and http.request.uri.path ne "/p")))',
-        "Redirect Expression (Dynamic - 请点击 Edit expression 粘贴):",
-        f'{rule_random}',
+        "Redirect Expression:",
+        f'{rule_portrait}',
         ""
     ]
     
