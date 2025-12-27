@@ -47,8 +47,30 @@ jobs:
           echo '```' >> $GITHUB_STEP_SUMMARY
 
       - name: Deploy to dist branch
-        uses: peaceiris/actions-gh-pages@v3
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./dist
-          publish_branch: dist
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          
+          # 1. 临时保存 dist 内容 (使用 -a 保留软链接)
+          mkdir -p /tmp/dist_content
+          cp -a dist/. /tmp/dist_content/
+          
+          # 2. 切换到 dist 分支 (如果不存在则创建孤儿分支)
+          git fetch origin dist || true
+          git checkout dist || git checkout --orphan dist
+          
+          # 3. 清空当前分支内容 (保留 .git)
+          git rm -rf .
+          
+          # 4. 恢复 dist 内容 (使用 -a 保留软链接)
+          cp -a /tmp/dist_content/. .
+          
+          # 5. 提交并推送
+          git add .
+          # 如果没有变化则不提交
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Deploy from $GITHUB_SHA"
+            git push origin dist --force
+          fi
