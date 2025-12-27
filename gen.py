@@ -362,6 +362,11 @@ def main():
         with open("CNAME", 'w', encoding='utf-8') as f:
             f.write(DOMAIN)
         print(f"Generated CNAME file: {DOMAIN}")
+    
+    # 7. 生成 index.html (避免根目录 404)
+    with open("index.html", 'w', encoding='utf-8') as f:
+        f.write("<h1>Cloudflare Random Image API</h1><p>Visit <a href='/rules.txt'>/rules.txt</a> for configuration.</p>")
+    print("Generated index.html")
         
     print("Done! Check 'dist' directory and 'rules.txt'.")
 

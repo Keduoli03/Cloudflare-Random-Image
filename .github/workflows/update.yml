@@ -52,7 +52,7 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
           # Add all generated files (force add in case they are ignored)
-          git add -f dist/ rules.txt CNAME
+          git add -f dist/ rules.txt CNAME index.html
           
           # Check if there are changes
           if git diff --staged --quiet; then
