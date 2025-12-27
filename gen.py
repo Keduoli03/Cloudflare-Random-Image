@@ -55,7 +55,7 @@ GITHUB_BRANCH = "dist"
 # CDN 加速域名 (可选)
 # 如果填写 (例如 "https://gcore.jsdelivr.net")，则拼接为: CDN/gh/User/Repo@Branch/path
 # 如果留空 ("")，则使用 GitHub Raw 默认域名: https://raw.githubusercontent.com/User/Repo/Branch/path
-CDN_DOMAIN = "https://gcore.jsdelivr.net"
+CDN_DOMAIN = ""
 # ===========================================
 
 
