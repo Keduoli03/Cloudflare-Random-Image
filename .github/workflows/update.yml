@@ -3,12 +3,6 @@ name: Build and Deploy Image API
 on:
   push:
     branches: ["main"]
-    paths:
-      - 'image/**'
-      - 'gen.py'
-      - 'gen_json.py'
-      - 'gen_image.py'
-      - '.github/workflows/**'
   workflow_dispatch:
   schedule:
     - cron: '0 0 * * *' # Optional: Run daily
