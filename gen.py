@@ -63,43 +63,46 @@ def generate_cf_rule(hex_len: int) -> str:
     # 2. Portrait (竖屏) -> 映射到 CDN/pxxxx.webp
     rule_portrait = f'concat("{base_url}/p", substring(uuidv4(cf.random_seed), 0, {hex_len}), "{ext}")'
     
-    # 3. Random (全随机) -> 混合 l/p
-    # 匹配: 根目录 "/", 或者以 "/" 结尾, 或者非 "/l" 且非 "/p"
-    # 注意：Cloudflare 规则匹配是"短路"的，建议把这条放在最后作为兜底
+    # Rule 3: Random -> Landscape (当 uuidv4 首位是 0-7)
+    rule_random_l = rule_landscape # 直接复用横屏的跳转逻辑
     
-    # Cloudflare Rewrite 不支持 if()，使用 regex_replace 模拟: 0-7 -> l, 8-f -> p
-    random_char = 'substring(uuidv4(cf.random_seed), 0, 1)'
-    prefix_logic = f'regex_replace(regex_replace({random_char}, "[0-7]", "l"), "[89a-f]", "p")'
-    rule_all = f'concat("{base_url}/", {prefix_logic}, substring(uuidv4(cf.random_seed), 1, {hex_len}), "{ext}")'
+    # Rule 4: Random -> Portrait (当 uuidv4 首位是 8-f)
+    rule_random_p = rule_portrait # 直接复用竖屏的跳转逻辑
     
     content = [
         "===========================================================",
-        "【注意】你启用了 CDN_PROVIDER，请使用 Redirect Rules (重定向规则)！",
-        "路径: Cloudflare -> Rules -> Redirect Rules",
-        "类型: Dynamic Redirect (动态重定向)",
-        "状态码: 302 (Temporary Redirect) 或 301",
+        "【注意】由于 Cloudflare 表达式限制 (禁止多次 uuidv4 / 嵌套正则)，",
+        "我们将'全随机'拆分为两条规则 (50% 概率各自触发)。",
+        "请严格按照以下顺序配置 4 条规则！",
         "===========================================================",
         "",
-        "--- Rule 1: Landscape (横屏) ---",
+        "--- Rule 1: Landscape (指定横屏) ---",
         "Rule Name: Random Image - Landscape",
         "Match Expression:",
         f'(http.host eq "{DOMAIN}" and http.request.uri.path eq "/l")',
         "Redirect Expression:",
         f'{rule_landscape}',
         "",
-        "--- Rule 2: Portrait (竖屏) ---",
+        "--- Rule 2: Portrait (指定竖屏) ---",
         "Rule Name: Random Image - Portrait",
         "Match Expression:",
         f'(http.host eq "{DOMAIN}" and http.request.uri.path eq "/p")',
         "Redirect Expression:",
         f'{rule_portrait}',
         "",
-        "--- Rule 3: Random (全随机 / 兜底) ---",
-        "Rule Name: Random Image - All",
+        "--- Rule 3: Random A (50% -> 横屏) ---",
+        "Rule Name: Random Image - All - A",
+        "Match Expression:",
+        f'(http.host eq "{DOMAIN}" and (http.request.uri.path eq "/" or (http.request.uri.path ne "/l" and http.request.uri.path ne "/p")) and substring(uuidv4(cf.random_seed), 0, 1) matches "[0-7]")',
+        "Redirect Expression:",
+        f'{rule_landscape}',
+        "",
+        "--- Rule 4: Random B (50% -> 竖屏) ---",
+        "Rule Name: Random Image - All - B",
         "Match Expression:",
         f'(http.host eq "{DOMAIN}" and (http.request.uri.path eq "/" or (http.request.uri.path ne "/l" and http.request.uri.path ne "/p")))',
         "Redirect Expression:",
-        f'{rule_all}',
+        f'{rule_portrait}',
         ""
     ]
     
