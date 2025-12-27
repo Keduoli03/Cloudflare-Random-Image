@@ -165,7 +165,7 @@ def generate_cf_rule(hex_len: int) -> str:
         "--- Rule 3: Random A (50% -> 横屏) ---",
         "Rule Name: Random Image - All - A",
         "Match Expression (请点击 Edit expression 粘贴):",
-        f'(http.host eq "{DOMAIN}" and (http.request.uri.path eq "/" or (http.request.uri.path ne "/l" and http.request.uri.path ne "/p")) and substring(cf.ray_id, 0, 1) matches "[0-7]")',
+        f'(http.host eq "{DOMAIN}" and (http.request.uri.path eq "/" or (http.request.uri.path ne "/l" and http.request.uri.path ne "/p")) and matches(cf.ray_id, "^[0-7]"))',
         "Redirect Expression:",
         f'{rule_landscape}',
         "",
