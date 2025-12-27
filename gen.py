@@ -55,7 +55,7 @@ GITHUB_BRANCH = "dist"
 # CDN 加速域名 (可选)
 # 如果填写 (例如 "https://gcore.jsdelivr.net")，则拼接为: CDN/gh/User/Repo@Branch/path
 # 如果留空 ("")，则使用 GitHub Raw 默认域名: https://raw.githubusercontent.com/User/Repo/Branch/path
-CDN_DOMAIN = ""
+CDN_DOMAIN = "https://gcore.jsdelivr.net"
 # ===========================================
 
 
@@ -80,7 +80,7 @@ def generate_cf_rule(hex_len: int) -> str:
     """生成 Cloudflare 规则表达式"""
     
     ext = ".webp" if CONVERT_WEBP else DEFAULT_EXT
-    base_url = get_base_url()
+    # base_url = get_base_url() # 在规则生成中不再使用完整 URL，而是使用相对路径以兼容 Rewrite 规则
     
     # 无论是否为 JSON 模式，Cloudflare 规则都是类似的
     # 如果是 JSON 模式，指向 .json
@@ -88,23 +88,28 @@ def generate_cf_rule(hex_len: int) -> str:
     
     suffix = ".json" if USE_JSON_MODE else ext
     
+    # 使用相对路径，这样既支持 Rewrite (内部重写到 GitHub Pages)，也支持 Redirect (内部跳转)
+    # 避免了在 Rewrite 规则中使用绝对 URL 导致的 1035 错误
+    
     # 1. Landscape (横屏)
-    rule_landscape = f'concat("{base_url}/l/", substring(uuidv4(cf.random_seed), 0, {hex_len}), "{suffix}")'
+    rule_landscape = f'concat("/l/", substring(uuidv4(cf.random_seed), 0, {hex_len}), "{suffix}")'
     
     # 2. Portrait (竖屏)
-    rule_portrait = f'concat("{base_url}/p/", substring(uuidv4(cf.random_seed), 0, {hex_len}), "{suffix}")'
+    rule_portrait = f'concat("/p/", substring(uuidv4(cf.random_seed), 0, {hex_len}), "{suffix}")'
     
     # 3. All (全局)
-    rule_all = f'concat("{base_url}/all/", substring(uuidv4(cf.random_seed), 0, {hex_len}), "{suffix}")'
+    rule_all = f'concat("/all/", substring(uuidv4(cf.random_seed), 0, {hex_len}), "{suffix}")'
     
     
     desc_suffix = "JSON" if USE_JSON_MODE else "Image"
     
     content = [
         "===========================================================",
-        "【说明】规则生成：",
+        "【说明】规则生成 (已更新为相对路径以修复 1035 错误)：",
         f"模式: {desc_suffix} Mode",
         f"存储结构: /l/, /p/, /all/ 指向 {suffix} 文件",
+        "注意：请在 Cloudflare 中使用 'Transform Rules' (重写) 或 'Redirect Rules' (重定向)",
+        "如果使用 Rewrite (重写)，必须使用相对路径（如下所示）。",
         "===========================================================",
         "",
         f"--- Rule 1: Landscape (指定横屏 -> {suffix}) ---",
