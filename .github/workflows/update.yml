@@ -36,20 +36,28 @@ jobs:
       - name: Output Rules (For Cloudflare Configuration)
         run: |
           echo "::group::Cloudflare Rules"
-          cat dist/rules.txt
+          cat rules.txt
           echo "::endgroup::"
           
           # Also append to GITHUB_STEP_SUMMARY
           echo "## Cloudflare Transform Rules" >> $GITHUB_STEP_SUMMARY
           echo "Please configure your Cloudflare Transform Rules (Rewrite URL) with the following:" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          cat dist/rules.txt >> $GITHUB_STEP_SUMMARY
+          cat rules.txt >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
 
-      - name: Deploy to dist branch
-        uses: peaceiris/actions-gh-pages@v3
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./dist
-          publish_branch: dist
-          force_orphan: true
+      - name: Commit and Push to Main
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Add all generated files
+          git add dist/ rules.txt CNAME
+          
+          # Check if there are changes
+          if git diff --staged --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "Update generated images and rules [skip ci]"
+            git push origin main
+          fi

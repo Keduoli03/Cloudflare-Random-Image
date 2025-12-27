@@ -1,0 +1,28 @@
+===========================================================
+【说明】规则生成 (已更新为相对路径以修复 1035 错误)：
+模式: JSON Mode
+存储结构: /l/, /p/, /all/ 指向 .json 文件
+注意：请在 Cloudflare 中使用 'Transform Rules' (重写) 或 'Redirect Rules' (重定向)
+如果使用 Rewrite (重写)，必须使用相对路径（如下所示）。
+===========================================================
+
+--- Rule 1: Landscape (指定横屏 -> .json) ---
+Rule Name: Random Image - Landscape - JSON
+Match Expression:
+(http.host eq "image.blueke.dpdns.org" and http.request.uri.path eq "/l")
+Redirect Expression:
+concat("/dist/l/", substring(uuidv4(cf.random_seed), 0, 1), ".json")
+
+--- Rule 2: Portrait (指定竖屏 -> .json) ---
+Rule Name: Random Image - Portrait - JSON
+Match Expression:
+(http.host eq "image.blueke.dpdns.org" and http.request.uri.path eq "/p")
+Redirect Expression:
+concat("/dist/p/", substring(uuidv4(cf.random_seed), 0, 1), ".json")
+
+--- Rule 3: Random All (全局随机 -> .json) ---
+Rule Name: Random Image - All - JSON
+Match Expression (请点击 Edit expression 粘贴):
+(http.host eq "image.blueke.dpdns.org" and (http.request.uri.path eq "/" or (http.request.uri.path ne "/l" and http.request.uri.path ne "/p")))
+Redirect Expression:
+concat("/dist/all/", substring(uuidv4(cf.random_seed), 0, 1), ".json")

@@ -50,7 +50,7 @@ USE_JSON_MODE = True
 # 仓库信息配置 (用于拼接 URL)
 GITHUB_USERNAME = "Keduoli03"
 GITHUB_REPO = "Cloudflare-Random-Image"
-GITHUB_BRANCH = "dist"
+GITHUB_BRANCH = "main"
 
 # CDN 加速域名 (可选)
 # 如果填写 (例如 "https://gcore.jsdelivr.net")，则拼接为: CDN/gh/User/Repo@Branch/path
@@ -70,11 +70,11 @@ def calculate_hex_len(item_count: int, min_len: int) -> int:
 def get_base_url() -> str:
     """根据配置生成基础 URL"""
     if CDN_DOMAIN:
-        # 使用 jsDelivr 格式: https://cdn/gh/User/Repo@Branch
-        return f"{CDN_DOMAIN}/gh/{GITHUB_USERNAME}/{GITHUB_REPO}@{GITHUB_BRANCH}"
+        # 使用 jsDelivr 格式: https://cdn/gh/User/Repo@Branch/dist
+        return f"{CDN_DOMAIN}/gh/{GITHUB_USERNAME}/{GITHUB_REPO}@{GITHUB_BRANCH}/dist"
     else:
-        # 使用 GitHub Raw 格式: https://raw.githubusercontent.com/User/Repo/Branch
-        return f"https://raw.githubusercontent.com/{GITHUB_USERNAME}/{GITHUB_REPO}/{GITHUB_BRANCH}"
+        # 使用 GitHub Raw 格式: https://raw.githubusercontent.com/User/Repo/Branch/dist
+        return f"https://raw.githubusercontent.com/{GITHUB_USERNAME}/{GITHUB_REPO}/{GITHUB_BRANCH}/dist"
 
 def generate_cf_rule(hex_len: int) -> str:
     """生成 Cloudflare 规则表达式"""
@@ -90,15 +90,16 @@ def generate_cf_rule(hex_len: int) -> str:
     
     # 使用相对路径，这样既支持 Rewrite (内部重写到 GitHub Pages)，也支持 Redirect (内部跳转)
     # 避免了在 Rewrite 规则中使用绝对 URL 导致的 1035 错误
+    # 注意：现在文件都在 /dist/ 目录下，所以重写路径需要加上 /dist/ 前缀
     
     # 1. Landscape (横屏)
-    rule_landscape = f'concat("/l/", substring(uuidv4(cf.random_seed), 0, {hex_len}), "{suffix}")'
+    rule_landscape = f'concat("/dist/l/", substring(uuidv4(cf.random_seed), 0, {hex_len}), "{suffix}")'
     
     # 2. Portrait (竖屏)
-    rule_portrait = f'concat("/p/", substring(uuidv4(cf.random_seed), 0, {hex_len}), "{suffix}")'
+    rule_portrait = f'concat("/dist/p/", substring(uuidv4(cf.random_seed), 0, {hex_len}), "{suffix}")'
     
     # 3. All (全局)
-    rule_all = f'concat("/all/", substring(uuidv4(cf.random_seed), 0, {hex_len}), "{suffix}")'
+    rule_all = f'concat("/dist/all/", substring(uuidv4(cf.random_seed), 0, {hex_len}), "{suffix}")'
     
     
     desc_suffix = "JSON" if USE_JSON_MODE else "Image"
@@ -353,10 +354,16 @@ def main():
     
     # 5. 生成 rules.txt
     rules = generate_cf_rule(hex_len)
-    with open(OUTPUT_DIR / "rules.txt", 'w', encoding='utf-8') as f:
+    with open("rules.txt", 'w', encoding='utf-8') as f:
         f.write(rules)
+    
+    # 6. 生成 CNAME 文件 (如果配置了域名)
+    if DOMAIN:
+        with open("CNAME", 'w', encoding='utf-8') as f:
+            f.write(DOMAIN)
+        print(f"Generated CNAME file: {DOMAIN}")
         
-    print("Done! Check 'dist' directory.")
+    print("Done! Check 'dist' directory and 'rules.txt'.")
 
 if __name__ == "__main__":
     main()
