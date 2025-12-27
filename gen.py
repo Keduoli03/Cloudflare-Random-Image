@@ -35,11 +35,30 @@ DEFAULT_EXT = ".jpg"
 # 部署域名
 DOMAIN = "image.blueke.dpdns.org"
 
+# 是否使用 JSON 模式 (True/False)
+# True: 
+#   1. 图片会被转换并存放在 dist/images/ 目录下 (扁平化存储)。
+#   2. 生成 /l/, /p/, /all/ 三个目录，里面全是 .json 文件。
+#   3. json 文件内容指向 dist/images/ 下的真实图片 URL。
+#   4. 优点：极大节省 GitHub 存储空间 (不用双倍/三倍存储图片)。
+# False: 
+#   1. 图片会被复制/转换到 dist/l/, dist/p/, dist/all/ 目录下。
+#   2. 直接是图片文件，直链访问。
+USE_JSON_MODE = True
+
 # ===========================================
-# 仓库 URL 和 CDN 提供方
-REPO_URL = "https://github.com/Keduoli03/Cloudflare-Random-Image"
-CDN_PROVIDER = "https://gcore.jsdelivr.net/gh/Keduoli03/Cloudflare-Random-Image@dist"
+# 仓库信息配置 (用于拼接 URL)
+GITHUB_USERNAME = "Keduoli03"
+GITHUB_REPO = "Cloudflare-Random-Image"
+GITHUB_BRANCH = "dist"
+
+# CDN 加速域名 (可选)
+# 如果填写 (例如 "https://gcore.jsdelivr.net")，则拼接为: CDN/gh/User/Repo@Branch/path
+# 如果留空 ("")，则使用 GitHub Raw 默认域名: https://raw.githubusercontent.com/User/Repo/Branch/path
+CDN_DOMAIN = "https://gcore.jsdelivr.net"
 # ===========================================
+
+
 
 def calculate_hex_len(item_count: int, min_len: int) -> int:
     """根据数据量自动计算所需的 Hex 长度"""
@@ -48,133 +67,66 @@ def calculate_hex_len(item_count: int, min_len: int) -> int:
     needed = math.ceil(math.log(item_count, 16))
     return max(min_len, needed)
 
+def get_base_url() -> str:
+    """根据配置生成基础 URL"""
+    if CDN_DOMAIN:
+        # 使用 jsDelivr 格式: https://cdn/gh/User/Repo@Branch
+        return f"{CDN_DOMAIN}/gh/{GITHUB_USERNAME}/{GITHUB_REPO}@{GITHUB_BRANCH}"
+    else:
+        # 使用 GitHub Raw 格式: https://raw.githubusercontent.com/User/Repo/Branch
+        return f"https://raw.githubusercontent.com/{GITHUB_USERNAME}/{GITHUB_REPO}/{GITHUB_BRANCH}"
+
 def generate_cf_rule(hex_len: int) -> str:
     """生成 Cloudflare 规则表达式"""
     
     ext = ".webp" if CONVERT_WEBP else DEFAULT_EXT
+    base_url = get_base_url()
     
-    # 使用 CDN_PROVIDER 拼接完整 URL (Redirect 模式)
-    # 如果为空，则回退到相对路径 (Rewrite 模式，虽然用户现在要求用 CDN)
-    base_url = CDN_PROVIDER if CDN_PROVIDER else ""
+    # 无论是否为 JSON 模式，Cloudflare 规则都是类似的
+    # 如果是 JSON 模式，指向 .json
+    # 如果是 图片模式，指向 .webp/.jpg
     
-    # 1. Landscape (横屏) -> 映射到 CDN/lxxxx.webp
-    rule_landscape = f'concat("{base_url}/l", substring(uuidv4(cf.random_seed), 0, {hex_len}), "{ext}")'
+    suffix = ".json" if USE_JSON_MODE else ext
     
-    # 2. Portrait (竖屏) -> 映射到 CDN/pxxxx.webp
-    rule_portrait = f'concat("{base_url}/p", substring(uuidv4(cf.random_seed), 0, {hex_len}), "{ext}")'
+    # 1. Landscape (横屏)
+    rule_landscape = f'concat("{base_url}/l/", substring(uuidv4(cf.random_seed), 0, {hex_len}), "{suffix}")'
     
-    # Rule 3: Random (Mixed)
-    # 逻辑：取 uuid 第0位字符 (0-f)，将其映射到 l 或 p
-    # Cloudflare 限制：regex_replace 不能嵌套，uuidv4 只能调用一次
-    # 解决方案：使用 lookup_json_string (虽然复杂) 或者更简单的：
-    # 我们可以利用 substring 来做映射！
-    # 构造一个固定的 16 字符字符串 (对应 0-f 的映射结果): "llllllllpppppppp"
-    # 然后把 hex 字符 (0-f) 转为数字索引？不行，Cloudflare 没有 hex2int。
+    # 2. Portrait (竖屏)
+    rule_portrait = f'concat("{base_url}/p/", substring(uuidv4(cf.random_seed), 0, {hex_len}), "{suffix}")'
     
-    # 新方案：利用 http.request.id (Ray ID) 或其他随机字段辅助，避免多次调用 uuidv4
-    # 但 uuidv4 最随机。
-    # 既然 regex_replace 不能嵌套，我们只能用单一正则提取。
-    # 还是回到最原始的方案：拆分规则。
-    # 用户不想拆分规则。
+    # 3. All (全局)
+    rule_all = f'concat("{base_url}/all/", substring(uuidv4(cf.random_seed), 0, {hex_len}), "{suffix}")'
     
-    # 终极方案：使用 regex_replace 做一次性替换
-    # 将 0-7 替换为 l，将 8-f 替换为 p。
-    # 表达式: regex_replace(substring(uuidv4(cf.random_seed), 0, 1), "[0-7]", "l") -> 得到 "l" 或 "8"-"f"
-    # 这还是不行，因为剩下 "8"-"f" 没变。
     
-    # 让我们换个思路：文件名不仅仅是 1 位 hex，而是 hex_len (比如 1 位)。
-    # 如果我们让文件名只有 "l" 和 "p" 开头，后面跟着 hex。
-    # 其实我们可以利用 "to_string(cf.ray_id)" 或者其他字段。
-    
-    # 真正可行的单条规则方案 (利用 regex_replace 的捕获组功能):
-    # regex_replace(input, pattern, replacement)
-    # 输入: substring(uuidv4(cf.random_seed), 0, 1)  (比如 "a")
-    # 正则: "[0-7]" -> "l"
-    # 正则: "[8-9a-f]" -> "p"
-    # Cloudflare 不支持多次 regex_replace。
-    
-    # 等等，Cloudflare 报错说 regex_replace 只能调 1 次，uuidv4 只能调 1 次。
-    # 那么我们必须在一次 regex_replace 中完成所有工作，或者根本不用 regex_replace。
-    
-    # 唯一的单条规则解法：不使用动态计算前缀，而是让文件名本身就包含随机性，或者接受拆分规则。
-    # 既然用户非常抗拒拆分规则，且刚才的尝试失败了。
-    
-    # 让我们尝试利用 lookup_json_string (如果 Cloudflare 支持的话，但那是高级功能)。
-    
-    # 回退方案：既然不能嵌套，也不能多次调用。
-    # 那我们只能放弃在 URL 里动态计算 "l" 或 "p"。
-    # 除非... 我们把所有文件都混在一起？不，用户要分类。
-    
-    # 重新思考：有没有办法一次 regex_replace 把 0-f 映射成 l/p？
-    # regex_replace("0", "[0-7]", "l") -> "l"
-    # regex_replace("8", "[0-7]", "l") -> "8" (没变)
-    
-    # 看来单条规则实现 "if-else" 逻辑在 Cloudflare 免费版限制下非常困难。
-    # 但我们还有一个技巧：
-    # 既然 uuidv4 返回的是 hex string。
-    # 我们可以只用 0 和 1 吗？
-    # 不行，uuidv4 是随机的。
-    
-    # 没办法，必须告诉用户：Cloudflare 免费版的限制导致必须拆分规则。
-    # 或者... 我们使用 cf.ray_id (它不限调用次数吗？文档没说，但通常比 uuidv4 宽松)。
-    # 错误提示说 "function uuidv4 is called 2 times"。
-    
-    # 让我们尝试用 cf.ray_id 替代 uuidv4 的其中一次调用。
-    # Ray ID 也是 hex 字符串。
-    # 比如: concat(..., substring(cf.ray_id, 0, 1), ...)
-    
-    # 如果我们用 ray_id 来决定 l/p，用 uuidv4 来决定文件名？
-    # ray_id 的分布也是均匀的吗？是的。
-    # 那么：
-    # random_char = substring(cf.ray_id, 0, 1)
-    # 还是面临 regex_replace 不能嵌套的问题。
-    
-    # 既然必须拆分，我需要诚实地告诉用户并恢复到拆分规则的状态，
-    # 但为了让用户体验更好，我会把规则写得非常清楚。
-    # 不过，用户刚才说 "只能调用一次uuid吧"。
-    
-    # 修正方案：恢复为 4 条规则 (A/B 分流)，这是唯一稳定可靠且不报错的方法。
-    # 为了安抚用户，我会把规则生成得更易读，并明确指出这是 Cloudflare 的硬限制。
-    
-    rule_random_l = rule_landscape
-    rule_random_p = rule_portrait
+    desc_suffix = "JSON" if USE_JSON_MODE else "Image"
     
     content = [
         "===========================================================",
-        "【重要提示】Cloudflare 免费版限制：",
-        "1. regex_replace 不能嵌套使用。",
-        "2. uuidv4() 在一条规则中只能调用 1 次。",
-        "因此，我们**必须**将随机分流拆分为两条规则 (A/B)。",
-        "这是实现 50/50 混合随机的唯一免费方案。",
+        "【说明】规则生成：",
+        f"模式: {desc_suffix} Mode",
+        f"存储结构: /l/, /p/, /all/ 指向 {suffix} 文件",
         "===========================================================",
         "",
-        "--- Rule 1: Landscape (指定横屏) ---",
-        "Rule Name: Random Image - Landscape",
+        f"--- Rule 1: Landscape (指定横屏 -> {suffix}) ---",
+        f"Rule Name: Random Image - Landscape - {desc_suffix}",
         "Match Expression:",
         f'(http.host eq "{DOMAIN}" and http.request.uri.path eq "/l")',
         "Redirect Expression:",
         f'{rule_landscape}',
         "",
-        "--- Rule 2: Portrait (指定竖屏) ---",
-        "Rule Name: Random Image - Portrait",
+        f"--- Rule 2: Portrait (指定竖屏 -> {suffix}) ---",
+        f"Rule Name: Random Image - Portrait - {desc_suffix}",
         "Match Expression:",
         f'(http.host eq "{DOMAIN}" and http.request.uri.path eq "/p")',
         "Redirect Expression:",
         f'{rule_portrait}',
         "",
-        "--- Rule 3: Random A (50% -> 横屏) ---",
-        "Rule Name: Random Image - All - A",
-        "Match Expression (请点击 Edit expression 粘贴):",
-        f'(http.host eq "{DOMAIN}" and (http.request.uri.path eq "/" or (http.request.uri.path ne "/l" and http.request.uri.path ne "/p")) and matches(cf.ray_id, "^[0-7]"))',
-        "Redirect Expression:",
-        f'{rule_landscape}',
-        "",
-        "--- Rule 4: Random B (50% -> 竖屏) ---",
-        "Rule Name: Random Image - All - B",
+        f"--- Rule 3: Random All (全局随机 -> {suffix}) ---",
+        f"Rule Name: Random Image - All - {desc_suffix}",
         "Match Expression (请点击 Edit expression 粘贴):",
         f'(http.host eq "{DOMAIN}" and (http.request.uri.path eq "/" or (http.request.uri.path ne "/l" and http.request.uri.path ne "/p")))',
         "Redirect Expression:",
-        f'{rule_portrait}',
+        f'{rule_all}',
         ""
     ]
     
@@ -241,10 +193,67 @@ def process_file(source_path: Path, target_path: Path):
     else:
         shutil.copy2(source_path, target_path)
 
-def write_files_prefix(data_list, output_dir: Path, hex_len: int, prefix: str):
-    """使用前缀写入文件"""
+def write_json_files(data_list, output_dir: Path, hex_len: int, subdir_name: str, images_dir_name: str = "images"):
+    """
+    生成 JSON 文件，内容指向真实图片 URL。
+    URL 格式: CDN/gh/User/Repo@Branch/images_dir_name/filename
+    """
     if not data_list:
         return
+
+    # 创建子目录 (例如 dist/l/)
+    target_dir = output_dir / subdir_name
+    ensure_dir(target_dir)
+
+    total_slots = 16 ** hex_len
+    buckets = [[] for _ in range(total_slots)]
+    
+    data_cycle = cycle(data_list)
+    for i in range(total_slots):
+        buckets[i] = next(data_cycle)
+    
+    ext = ".webp" if CONVERT_WEBP else DEFAULT_EXT
+    base_url = get_base_url()
+
+    for i in range(total_slots):
+        hex_name = f"{i:0{hex_len}x}"
+        
+        # 1. 确定这个 slot 指向的真实图片文件名
+        source_item = buckets[i]
+        # 注意：这里我们假设 source_item['target_filename'] 已经在 process_all_images 阶段被设置好了
+        # 或者我们在这里需要知道它在 /images/ 下的文件名
+        # 为了简单，我们必须在处理所有图片时，就确定好它们在 /images/ 下的文件名
+        
+        real_image_filename = source_item.get('target_filename')
+        if not real_image_filename:
+             print(f"Error: Missing target filename for {source_item['path']}")
+             continue
+             
+        # 2. 构造 URL
+        # 格式: base_url/images/filename.ext
+        target_url = f"{base_url}/{images_dir_name}/{real_image_filename}"
+        
+        # 3. 写入 JSON
+        json_content = {
+            "url": target_url
+        }
+        
+        json_filename = f"{hex_name}.json"
+        json_path = target_dir / json_filename
+        
+        with open(json_path, 'w', encoding='utf-8') as f:
+            json.dump(json_content, f)
+
+    print(f"  Generated {total_slots} json files in '{subdir_name}/'")
+
+def write_files_prefix(data_list, output_dir: Path, hex_len: int, subdir_name: str):
+    """使用子目录模式写入文件"""
+    if not data_list:
+        return
+
+    # 创建子目录 (例如 dist/l/)
+    target_dir = output_dir / subdir_name
+    ensure_dir(target_dir)
 
     total_slots = 16 ** hex_len
     buckets = [[] for _ in range(total_slots)]
@@ -257,16 +266,15 @@ def write_files_prefix(data_list, output_dir: Path, hex_len: int, prefix: str):
 
     for i in range(total_slots):
         hex_name = f"{i:0{hex_len}x}"
-        # 文件名格式: prefixhex.ext (e.g., l0a.webp)
-        target_filename = f"{prefix}{hex_name}{ext}"
-        target_path = output_dir / target_filename
+        target_filename = f"{hex_name}{ext}"
+        target_path = target_dir / target_filename
         
         source_item = buckets[i]
         source_path = source_item['path']
         
         process_file(source_path, target_path)
 
-    print(f"  Generated {total_slots} files with prefix '{prefix}' in {output_dir}")
+    print(f"  Generated {total_slots} files in '{subdir_name}/'")
 
 def main():
     # 1. 扫描
@@ -280,22 +288,63 @@ def main():
         print("Error: No images found.")
         sys.exit(1)
 
-    # 2. 计算 Hex 长度 (分别计算，或者统一计算)
-    # 为了简化 Cloudflare 规则，建议统一长度，取最大值
-    max_count = max(len(landscape), len(portrait))
-    hex_len = calculate_hex_len(max_count, MIN_HEX_LEN)
+    # 2. 计算 Hex 长度
+    hex_len = calculate_hex_len(len(all_imgs), MIN_HEX_LEN)
     print(f"Calculated Hex Length: {hex_len}")
     
     # 3. 清理并生成目录
     ensure_dir(OUTPUT_DIR)
     
-    # 4. 生成文件 (前缀模式，扁平化存储)
-    # 这里的 OUTPUT_DIR 就是 dist/
-    print("Generating landscape files (l-xx)...")
-    write_files_prefix(landscape, OUTPUT_DIR, hex_len, "l")
-    
-    print("Generating portrait files (p-xx)...")
-    write_files_prefix(portrait, OUTPUT_DIR, hex_len, "p")
+    # 4. 生成文件
+    if USE_JSON_MODE:
+        print("Starting JSON Mode Generation...")
+        
+        # A. 首先，将所有图片统一处理并存放到 dist/images/ 目录下
+        # 保持扁平化结构，文件名可以使用 uuid 或者简单的 hash，或者保留原名
+        # 为了避免文件名冲突，建议使用 hash 或 uuid，或者简单的计数
+        # 但为了让 JSON 指向稳定，我们需要给每个 item 分配一个固定的文件名
+        
+        images_dir = OUTPUT_DIR / "images"
+        ensure_dir(images_dir)
+        
+        ext = ".webp" if CONVERT_WEBP else DEFAULT_EXT
+        
+        print("Processing source images to /images/...")
+        for idx, item in enumerate(all_imgs):
+            # 给每个图片分配一个唯一文件名，例如 image_0.webp, image_1.webp
+            # 或者更短一点: 0.webp, 1.webp ... (基于 all_imgs 的索引)
+            # 或者保留原名 (如果不冲突)。为了安全，使用索引或 hash。
+            # 这里使用索引，简单可靠。
+            target_filename = f"{idx}{ext}"
+            target_path = images_dir / target_filename
+            
+            process_file(item['path'], target_path)
+            
+            # 将生成的 filename 记录回 item，供后面生成 JSON 使用
+            # 注意：all_imgs 中的 item 对象是共享的，landscape 和 portrait 列表里的 item 也是同一个对象的引用
+            item['target_filename'] = target_filename
+            
+        # B. 生成 /l/, /p/, /all/ 下的 JSON 文件
+        print("Generating JSON files for /l/...")
+        write_json_files(landscape, OUTPUT_DIR, hex_len, "l")
+        
+        print("Generating JSON files for /p/...")
+        write_json_files(portrait, OUTPUT_DIR, hex_len, "p")
+        
+        print("Generating JSON files for /all/...")
+        write_json_files(all_imgs, OUTPUT_DIR, hex_len, "all")
+        
+    else:
+        # 传统模式：图片副本
+        print("Starting Image Mode Generation (Shadow Copy)...")
+        print("Generating landscape files (/l/)...")
+        write_files_prefix(landscape, OUTPUT_DIR, hex_len, "l")
+        
+        print("Generating portrait files (/p/)...")
+        write_files_prefix(portrait, OUTPUT_DIR, hex_len, "p")
+        
+        print("Generating all files (/all/)...")
+        write_files_prefix(all_imgs, OUTPUT_DIR, hex_len, "all")
     
     # 5. 生成 rules.txt
     rules = generate_cf_rule(hex_len)
